@@ -26,4 +26,21 @@ async function ensureController() {
   await controller.onLoad()
 }
 
-ensureController().then(app, app)
+// DIAGNOSTIC BUILD -- not for upstream. Reports what the background context managed to do.
+async function reportDiag() {
+  let text
+  try {
+    const browser = (await import('../lib/browser-api')).default
+    const { floccusDiag } = await browser.storage.local.get('floccusDiag')
+    text = floccusDiag
+      ? `${JSON.stringify(floccusDiag)} (${Math.round((Date.now() - floccusDiag.at) / 1000)}s ago)`
+      : 'background wrote nothing at all'
+  } catch (e) {
+    text = 'could not read diag: ' + e
+  }
+  // eslint-disable-next-line no-alert
+  window.alert('floccus diag: ' + text)
+  app()
+}
+
+ensureController().then(reportDiag, reportDiag)
