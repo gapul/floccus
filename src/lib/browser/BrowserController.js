@@ -10,6 +10,16 @@ import Account from '../Account'
 import { STATUS_ALLGOOD, STATUS_DISABLED, STATUS_ERROR, STATUS_SYNCING } from '../interfaces/Controller'
 import { onWakeUp } from '../on-wake-up'
 
+// Register an event listener without letting an API that the browser doesn't implement
+// (e.g. tabs.onDetached on Orion iOS) abort the whole controller setup
+function on(getEvent, listener) {
+  try {
+    getEvent().addListener(listener)
+  } catch (e) {
+    console.warn('Skipping unsupported event listener', e)
+  }
+}
+
 const INACTIVITY_TIMEOUT = 7 * 1000 // 7 seconds
 const MAX_BACKOFF_INTERVAL = 1000 * 60 * 60 // 1 hour
 const DEFAULT_SYNC_INTERVAL = 15 // 15 minutes
@@ -94,56 +104,60 @@ export default class BrowserController {
     }
 
     // set up change listener
-    browser.bookmarks.onChanged.addListener((localId, details) =>
+    on(() => browser.bookmarks.onChanged, (localId, details) =>
       this.onchange(localId, details)
     )
-    browser.bookmarks.onMoved.addListener((localId, details) =>
+    on(() => browser.bookmarks.onMoved, (localId, details) =>
       this.onchange(localId, details)
     )
-    browser.bookmarks.onRemoved.addListener((localId, details) =>
+    on(() => browser.bookmarks.onRemoved, (localId, details) =>
       this.onchange(localId, details)
     )
-    browser.bookmarks.onCreated.addListener((localId, details) =>
+    on(() => browser.bookmarks.onCreated, (localId, details) =>
       this.onchange(localId, details)
     )
-    browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) =>
+    on(() => browser.tabs.onUpdated, (tabId, changeInfo, tab) =>
       this.onTabsChanged(tabId)
     )
-    browser.tabs.onRemoved.addListener((tabId, changeInfo, tab) =>
+    on(() => browser.tabs.onRemoved, (tabId, changeInfo, tab) =>
       this.onTabsChanged(tabId)
     )
-    browser.tabs.onMoved.addListener((tabId, changeInfo, tab) =>
+    on(() => browser.tabs.onMoved, (tabId, changeInfo, tab) =>
       this.onTabsChanged(tabId)
     )
-    browser.tabs.onDetached.addListener((tabId, changeInfo, tab) =>
+    on(() => browser.tabs.onDetached, (tabId, changeInfo, tab) =>
       this.onTabsChanged(tabId)
     )
     if (typeof browser.tabGroups !== 'undefined') {
-      browser.tabGroups.onCreated.addListener((tabId, changeInfo, tab) =>
+      on(() => browser.tabGroups.onCreated, (tabId, changeInfo, tab) =>
         this.onTabsChanged(tabId)
       )
-      browser.tabGroups.onMoved.addListener((tabId, changeInfo, tab) =>
+      on(() => browser.tabGroups.onMoved, (tabId, changeInfo, tab) =>
         this.onTabsChanged(tabId)
       )
-      browser.tabGroups.onRemoved.addListener((tabId, changeInfo, tab) =>
+      on(() => browser.tabGroups.onRemoved, (tabId, changeInfo, tab) =>
         this.onTabsChanged(tabId)
       )
-      browser.tabGroups.onUpdated.addListener((tabId, changeInfo, tab) =>
+      on(() => browser.tabGroups.onUpdated, (tabId, changeInfo, tab) =>
         this.onTabsChanged(tabId)
       )
     }
 
     browser.permissions.contains({permissions: ['history']}).then((historyAllowed) => {
       if (historyAllowed) {
-        browser.history.onVisited.addListener((historyItem) => this.onVisitUrl(historyItem))
+        on(() => browser.history.onVisited, (historyItem) => this.onVisitUrl(historyItem))
       }
-    })
+    }).catch(e => console.warn('Could not check history permission', e))
 
     // Set up the alarms
 
-    browser.alarms.create('checkStorage', { periodInMinutes: 15 })
-    browser.alarms.create('checkSync', { periodInMinutes: 1 })
-    browser.alarms.onAlarm.addListener(async alarm => {
+    try {
+      browser.alarms.create('checkStorage', { periodInMinutes: 15 })
+      browser.alarms.create('checkSync', { periodInMinutes: 1 })
+    } catch (e) {
+      console.warn('Could not create alarms', e)
+    }
+    on(() => browser.alarms.onAlarm, async alarm => {
       await this.alarms[alarm.name]()
     })
 
@@ -229,7 +243,7 @@ export default class BrowserController {
     })
 
     // Run some things on browser startup
-    browser.runtime.onStartup.addListener(() => this.onStartup())
+    on(() => browser.runtime.onStartup, () => this.onStartup())
   }
 
   async _receiveEvent(data, sendResponse) {
