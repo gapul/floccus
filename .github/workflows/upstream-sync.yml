@@ -1,11 +1,17 @@
 name: Upstream sync
 
-# This is a fork kept only so there is something to build from; the work happens
+# This is a fork kept so there is something to build from; the work happens
 # elsewhere. Once a month, pull upstream into the default branch so the fork does
 # not quietly rot. Nothing is built here — merging is the whole job.
 #
-# A conflict means a local commit now disagrees with upstream, which is a thing to
-# look at by hand, so the run fails loudly instead of papering over it.
+# Upstream's own workflows are left on disk (deleting them would make every
+# future merge conflict) but disabled in this repository's Actions settings, so
+# this is the only thing that runs.
+#
+# GITHUB_TOKEN is refused when a merge would touch .github/workflows, which
+# upstream does sooner or later. Set UPSTREAM_SYNC_TOKEN — a fine-grained PAT
+# with Contents and Workflows both writable — to get past that. Without it the
+# run fails with an explanation and the web UI's "Sync fork" button still works.
 
 on:
   schedule:
@@ -21,8 +27,23 @@ jobs:
     steps:
       - name: Merge upstream into the default branch
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
           echo "syncing $GITHUB_REPOSITORY:$branch with its upstream"
-          gh api -X POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch="$branch"
+
+          if out=$(gh api -X POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch="$branch" 2>&1); then
+            echo "$out"
+            exit 0
+          fi
+          echo "$out"
+
+          case "$out" in
+            *"refusing to allow"*)
+              echo "::error::Upstream changed something under .github/workflows and GITHUB_TOKEN may not write there. Add an UPSTREAM_SYNC_TOKEN secret (fine-grained PAT, Contents + Workflows write), or use the Sync fork button in the web UI."
+              ;;
+            *)
+              echo "::error::Upstream would not merge cleanly — most likely a conflict with a local commit. Merge it by hand."
+              ;;
+          esac
+          exit 1
