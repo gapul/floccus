@@ -1,0 +1,28 @@
+name: Upstream sync
+
+# This is a fork kept only so there is something to build from; the work happens
+# elsewhere. Once a month, pull upstream into the default branch so the fork does
+# not quietly rot. Nothing is built here — merging is the whole job.
+#
+# A conflict means a local commit now disagrees with upstream, which is a thing to
+# look at by hand, so the run fails loudly instead of papering over it.
+
+on:
+  schedule:
+    - cron: '0 18 1 * *'    # 1st of the month, 03:00 JST on the 2nd
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge upstream into the default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          echo "syncing $GITHUB_REPOSITORY:$branch with its upstream"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/merge-upstream" -f branch="$branch"
